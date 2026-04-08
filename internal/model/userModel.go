@@ -2,8 +2,21 @@ package model
 
 import (
 	"time"
+
 	"gorm.io/gorm"
 )
+
+// =======================
+// 🔐 CONSTANT ROLE
+// =======================
+const (
+	RoleUser  = "user"
+	RoleAdmin = "admin"
+)
+
+// =======================
+// 📦 DTO & INPUT
+// =======================
 
 type UserList struct {
 	Username string
@@ -26,6 +39,9 @@ type FileInput struct {
 	FileDescription string `json:"filedescription" validate:"required"`
 }
 
+// =======================
+// 🗄️ MODEL DATABASE
+// =======================
 
 type User struct {
 	ID                  uint            `json:"id" gorm:"primaryKey"`
@@ -36,7 +52,7 @@ type User struct {
 	Phone               string          `json:"phone" gorm:"index"`
 	Password            string          `json:"-" gorm:"not null"`
 	GroupID             uint            `json:"group_id" gorm:"default:2;not null;index"`
-	Role                string          `json:"role" gorm:"default:pembeli;size:50"` 
+	Role                string          `json:"role" gorm:"default:user;size:50"` // ✅ FIX
 	IsAktif             string          `json:"is_aktif" gorm:"default:Y;size:1;not null"`
 	SubscribeNewsletter bool            `json:"subscribe_newsletter" gorm:"default:false"`
 	CreatedAt           *time.Time      `json:"createdAt" gorm:"autoCreateTime"`
@@ -44,13 +60,16 @@ type User struct {
 	DeletedAt           *gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
+// =======================
+// 📥 REQUEST
+// =======================
 
 type RegisterRequest struct {
 	Username            string `json:"username" binding:"required,min=3"`
 	Email               string `json:"email" binding:"required,email"`
 	Password            string `json:"password" binding:"required,min=8"`
 	ConfirmPassword     string `json:"confirmPassword,omitempty"`
-	Role                string `json:"role"` 
+	Role                string `json:"role"`
 	GroupID             uint   `json:"group_id"`
 	IsAktif             string `json:"is_aktif" binding:"omitempty,oneof=Y N"`
 	FirstName           string `json:"first_name"`
@@ -69,6 +88,9 @@ type LoginWithUsernameRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// =======================
+// 📤 RESPONSE
+// =======================
 
 type UserResponse struct {
 	ID                  uint       `json:"id"`
@@ -84,11 +106,13 @@ type UserResponse struct {
 	CreatedAt           *time.Time `json:"createdAt"`
 }
 
+// =======================
+// 🧠 MAPPING FUNCTION
+// =======================
 
 func (User) TableName() string {
 	return "users"
 }
-
 
 func (u *User) ToResponse() UserResponse {
 	return UserResponse{
@@ -118,10 +142,7 @@ func (u *User) ToUserList() UserList {
 
 func (ui *UserInput) ToUser() User {
 	isAktif := ui.IsAktif
-	if isAktif == "" {
-		isAktif = "Y"
-	}
-	if isAktif != "Y" && isAktif != "N" {
+	if isAktif == "" || (isAktif != "Y" && isAktif != "N") {
 		isAktif = "Y"
 	}
 
@@ -136,15 +157,13 @@ func (ui *UserInput) ToUser() User {
 		GroupID:  groupID,
 		IsAktif:  isAktif,
 		Password: ui.Password,
+		Role:     RoleUser, // default
 	}
 }
 
 func (r *RegisterRequest) ToUser() User {
 	isAktif := r.IsAktif
-	if isAktif == "" {
-		isAktif = "Y"
-	}
-	if isAktif != "Y" && isAktif != "N" {
+	if isAktif == "" || (isAktif != "Y" && isAktif != "N") {
 		isAktif = "Y"
 	}
 
@@ -153,14 +172,13 @@ func (r *RegisterRequest) ToUser() User {
 		groupID = 2
 	}
 
-	
 	role := r.Role
 	if role == "" {
-		role = "pembeli"
+		role = RoleUser
 	}
-	
-	if role != "pembeli" && role != "developer" {
-		role = "pembeli"
+
+	if role != RoleUser && role != RoleAdmin {
+		role = RoleUser
 	}
 
 	return User{
@@ -178,8 +196,9 @@ func (r *RegisterRequest) ToUser() User {
 }
 
 // =======================
-// 🧩 Validation
+// ✅ VALIDATION
 // =======================
+
 func (r *RegisterRequest) Validate() error {
 	if r.Username == "" {
 		return ErrUsernameRequired
@@ -205,12 +224,15 @@ func (r *RegisterRequest) Validate() error {
 	if r.GroupID != 0 && r.GroupID < 1 {
 		return ErrInvalidGroupID
 	}
-	if r.Role != "" && r.Role != "pembeli" && r.Role != "developer" {
+	if r.Role != "" && r.Role != RoleUser && r.Role != RoleAdmin {
 		return ErrInvalidRole
 	}
 	return nil
 }
 
+// =======================
+// ❌ ERROR
+// =======================
 
 var (
 	ErrUsernameRequired  = &ValidationError{Field: "username", Message: "Username wajib diisi"}
@@ -221,7 +243,7 @@ var (
 	ErrPasswordMismatch  = &ValidationError{Field: "confirmPassword", Message: "Password dan konfirmasi password tidak sama"}
 	ErrInvalidIsAktif    = &ValidationError{Field: "is_aktif", Message: "IsAktif hanya boleh Y atau N"}
 	ErrInvalidGroupID    = &ValidationError{Field: "group_id", Message: "ID Grup tidak valid"}
-	ErrInvalidRole       = &ValidationError{Field: "role", Message: "Role hanya boleh pembeli atau developer"}
+	ErrInvalidRole       = &ValidationError{Field: "role", Message: "Role hanya boleh user atau admin"} // ✅ FIX
 )
 
 type ValidationError struct {
