@@ -1,67 +1,52 @@
 package config
 
 import (
-    "log"
-    "os"
+	"log"
+	"os"
 
-    "gorm.io/driver/postgres"
-    "gorm.io/gorm"
-    "gorm.io/gorm/logger"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 var DB *gorm.DB
 
 func Connect() {
-    dsn := os.Getenv("DATABASE_URL")
-	 log.Println("🔍 DSN:", dsn)
-    if dsn == "" {
-        log.Fatal("❌ DATABASE_URL is not set")
-    }
+	dsn := os.Getenv("DATABASE_URL")
 
-    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-        Logger: logger.Default.LogMode(logger.Info),
-    })
-    if err != nil {
-        log.Fatalf("❌ Failed to connect to database: %v", err)
-    }
+	if dsn == "" {
+		log.Fatal("❌ DATABASE_URL not found")
+	}
 
-    sqlDB, err := db.DB()
-    if err != nil {
-        log.Fatalf("❌ Failed to get underlying sql.DB: %v", err)
-    }
+	log.Println("🔧 Opening database connection...")
+	log.Println("🔍 DSN:", dsn)
 
-    if err := sqlDB.Ping(); err != nil {
-        log.Fatalf("❌ Failed to ping database: %v", err)
-    }
+	var err error
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+		PrepareStmt: false, // ✅ FIX: disable prepared statement (WAJIB untuk Supabase)
+	})
 
-    sqlDB.SetMaxIdleConns(10)
-    sqlDB.SetMaxOpenConns(100)
+	if err != nil {
+		log.Fatalf("❌ Failed to connect database: %v", err)
+	}
 
-    log.Println("✅ Connected to Supabase PostgreSQL")
-    DB = db
-}
+	log.Println("✅ Connected to Supabase PostgreSQL")
 
-func RunMigrations() {
-    log.Println("🔄 Starting auto-migration...")
-    err := DB.AutoMigrate(
-        // &model.User{},
-        // &model.Project{},
-    )
-    if err != nil {
-        log.Fatalf("❌ Migration failed: %v", err)
-    }
-    log.Println("✅ Migration completed")
+	// ✅ tambahan safety (optional tapi bagus)
+	DB = DB.Session(&gorm.Session{
+		PrepareStmt: false,
+	})
 }
 
 func Close() {
-    sqlDB, err := DB.DB()
-    if err != nil {
-        log.Printf("❌ Failed to get sql.DB: %v", err)
-        return
-    }
-    if err := sqlDB.Close(); err != nil {
-        log.Printf("❌ Failed to close database: %v", err)
-        return
-    }
-    log.Println("✅ Database connection closed")
+	sqlDB, err := DB.DB()
+	if err != nil {
+		log.Println("❌ Failed to get sqlDB:", err)
+		return
+	}
+	sqlDB.Close()
+}
+
+// helper env
+func GetEnv(key string) string {
+	return os.Getenv(key)
 }
