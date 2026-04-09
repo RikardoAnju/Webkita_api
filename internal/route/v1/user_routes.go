@@ -5,16 +5,17 @@ import (
 	"BackendFramework/internal/middleware"
 	"BackendFramework/internal/model"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-func InitUserRoutes(r *gin.RouterGroup) {
+func InitUserRoutes(r *gin.RouterGroup, db *gorm.DB) {
 	user := r.Group("/user")
 	user.Use(middleware.JWTAuthMiddleware(), middleware.LogUserActivity())
 	{
 		user.GET("/", controller.GetUser)
 		user.GET("/:usrId", controller.GetUser)
 		user.DELETE("/:usrId", controller.DeleteUser)
-		
+
 		userInput := &model.UserInput{}
 		user.PUT("/", middleware.InputValidator(userInput), controller.InsertUser)
 		user.PATCH("/", middleware.InputValidator(userInput), controller.UpdateUser)

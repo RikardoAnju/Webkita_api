@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 
 	"BackendFramework/internal/model"
 	"BackendFramework/internal/service"
@@ -9,55 +11,96 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+func respondErr(c *gin.Context, err error) {
+	var appErr *model.AppError
+	if errors.As(err, &appErr) {
+		code := appErr.Code
+		if code == 0 {
+			code = http.StatusBadRequest
+		}
+		c.JSON(code, gin.H{
+			"status":  "error",
+			"message": appErr.Message,
+			"field":   appErr.Field,
+		})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"status":  "error",
+		"message": "Terjadi kesalahan internal server",
+	})
+}
+
+// getUserIDFromContext mengambil user_id dari JWT context (support uint & string)
+func getUserIDFromContext(c *gin.Context) (uint, bool) {
+	raw, exists := c.Get("user_id")
+	if !exists {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case uint:
+		return v, true
+	case float64:
+		return uint(v), true
+	case string:
+		id, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return uint(id), true
+	}
+	return 0, false
+}
+
+// ─── GET /user/:usrId  atau  GET /user ───────────────────────────────────────
+
 func GetUser(c *gin.Context) {
 	usrId := c.Param("usrId")
 
 	if usrId != "" {
-		// Get single user
 		user, err := service.GetOneUser(usrId)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
-				"code":    http.StatusNotFound,
-				"message": "User not found",
-				"error":   err.Error(),
+				"status":  "error",
+				"message": "User tidak ditemukan",
 			})
 			return
 		}
-
 		c.JSON(http.StatusOK, gin.H{
-			"code":    http.StatusOK,
-			"message": "User retrieved successfully",
+			"status":  "success",
+			"message": "User berhasil diambil",
 			"data":    user,
 		})
 		return
 	}
 
-	// Get all users
 	users, err := service.GetAllUsers()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to retrieve users",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal mengambil data user",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "Users retrieved successfully",
+		"status":  "success",
+		"message": "Users berhasil diambil",
 		"data":    users,
 		"total":   len(users),
 	})
 }
 
-// GetUserByEmail mengambil user berdasarkan email
+// ─── GET /user?email=xxx ──────────────────────────────────────────────────────
+
 func GetUserByEmail(c *gin.Context) {
 	email := c.Query("email")
 	if email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "Email parameter is required",
+			"status":  "error",
+			"message": "Parameter email wajib diisi",
 		})
 		return
 	}
@@ -65,49 +108,52 @@ func GetUserByEmail(c *gin.Context) {
 	user, err := service.GetOneUserByEmail(email)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"code":    http.StatusNotFound,
-			"message": "User not found",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "User tidak ditemukan",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "User retrieved successfully",
+		"status":  "success",
+		"message": "User berhasil diambil",
 		"data":    user,
 	})
 }
 
-// GET /auth/me atau /user/profile
+// ─── GET /auth/me ─────────────────────────────────────────────────────────────
+
+// GetMyProfile mengambil profil user yang sedang login (dari JWT)
 func GetMyProfile(c *gin.Context) {
-	// Ambil user ID dari JWT claims (sudah di-set oleh middleware)
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(401, gin.H{"error": "Unauthorized"})
+	userID, ok := getUserIDFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "error",
+			"message": "Pengguna tidak terautentikasi",
+		})
 		return
 	}
 
-	user, err := service.GetCurrentUserProfile(userID.(uint))
+	user, err := service.GetCurrentUserProfile(userID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": err.Error()})
+		respondErr(c, err)
 		return
 	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"status": "success",
 		"data":   user.ToResponse(),
 	})
 }
 
-// InsertUser menambahkan user baru
+// ─── POST /user ───────────────────────────────────────────────────────────────
+
 func InsertUser(c *gin.Context) {
-	// Get validated input from middleware
 	validatedInput, exists := c.Get("validatedInput")
 	if !exists {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "Invalid request data",
+			"status":  "error",
+			"message": "Data request tidak valid",
 		})
 		return
 	}
@@ -115,60 +161,52 @@ func InsertUser(c *gin.Context) {
 	userInput, ok := validatedInput.(*model.UserInput)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "Invalid user input format",
+			"status":  "error",
+			"message": "Format input user tidak valid",
 		})
 		return
 	}
 
-	// Check if user already exists
 	exists, err := service.CheckUserExists(userInput.Username, userInput.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to check user existence",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal memeriksa keberadaan user",
 		})
 		return
 	}
-
 	if exists {
 		c.JSON(http.StatusConflict, gin.H{
-			"code":    http.StatusConflict,
-			"message": "User with this username or email already exists",
+			"status":  "error",
+			"message": "Username atau email sudah digunakan",
 		})
 		return
 	}
 
-	// Insert user
-	err = service.InsertUser(userInput)
-	if err != nil {
+	if err := service.InsertUser(userInput); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to create user",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal membuat user",
 		})
 		return
 	}
 
-	// Don't return password in response
-	userInput.Password = ""
-
+	userInput.Password = "" // jangan return password
 	c.JSON(http.StatusCreated, gin.H{
-		"code":    http.StatusCreated,
-		"message": "User created successfully",
+		"status":  "success",
+		"message": "User berhasil dibuat",
 		"data":    userInput,
 	})
 }
 
-// UpdateUser memperbarui data user
+// ─── PUT /user ────────────────────────────────────────────────────────────────
+
 func UpdateUser(c *gin.Context) {
-	// Get validated input from middleware
 	validatedInput, exists := c.Get("validatedInput")
 	if !exists {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "Invalid request data",
+			"status":  "error",
+			"message": "Data request tidak valid",
 		})
 		return
 	}
@@ -176,129 +214,118 @@ func UpdateUser(c *gin.Context) {
 	userInput, ok := validatedInput.(*model.UserInput)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "Invalid user input format",
+			"status":  "error",
+			"message": "Format input user tidak valid",
 		})
 		return
 	}
 
-	// Update user
-	err := service.UpdateUser(userInput)
-	if err != nil {
+	if err := service.UpdateUser(userInput); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to update user",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal memperbarui user",
 		})
 		return
 	}
 
-	// Don't return password in response
 	userInput.Password = ""
-
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "User updated successfully",
+		"status":  "success",
+		"message": "User berhasil diperbarui",
 		"data":    userInput,
 	})
 }
 
-// DeleteUser menghapus user (soft delete)
+// ─── DELETE /user/:usrId (soft delete) ───────────────────────────────────────
+
 func DeleteUser(c *gin.Context) {
 	usrId := c.Param("usrId")
 	if usrId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "User ID is required",
+			"status":  "error",
+			"message": "User ID wajib diisi",
 		})
 		return
 	}
 
-	err := service.DeleteUser(usrId)
-	if err != nil {
+	if err := service.DeleteUser(usrId); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to delete user",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal menghapus user",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "User deleted successfully",
-		"data": gin.H{
-			"username": usrId,
-		},
+		"status":  "success",
+		"message": "User berhasil dihapus",
+		"data":    gin.H{"username": usrId},
 	})
 }
 
-// HardDeleteUser menghapus user secara permanen
+// ─── DELETE /user/:usrId/permanent ───────────────────────────────────────────
+
 func HardDeleteUser(c *gin.Context) {
 	usrId := c.Param("usrId")
 	if usrId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "User ID is required",
+			"status":  "error",
+			"message": "User ID wajib diisi",
 		})
 		return
 	}
 
-	err := service.HardDeleteUser(usrId)
-	if err != nil {
+	if err := service.HardDeleteUser(usrId); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to permanently delete user",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal menghapus user secara permanen",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "User permanently deleted",
-		"data": gin.H{
-			"username": usrId,
-		},
+		"status":  "success",
+		"message": "User berhasil dihapus secara permanen",
+		"data":    gin.H{"username": usrId},
 	})
 }
+
+// ─── POST /user/:usrId/restore ────────────────────────────────────────────────
 
 func RestoreUser(c *gin.Context) {
 	usrId := c.Param("usrId")
 	if usrId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "User ID is required",
+			"status":  "error",
+			"message": "User ID wajib diisi",
 		})
 		return
 	}
 
-	err := service.RestoreUser(usrId)
-	if err != nil {
+	if err := service.RestoreUser(usrId); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to restore user",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal memulihkan user",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "User restored successfully",
-		"data": gin.H{
-			"username": usrId,
-		},
+		"status":  "success",
+		"message": "User berhasil dipulihkan",
+		"data":    gin.H{"username": usrId},
 	})
 }
 
-func GetUserProfile(c *gin.Context) {
+// ─── GET /user/profile (dari JWT middleware) ──────────────────────────────────
 
-	userID, exists := c.Get("userID")
+// GetUserProfile — gunakan untuk endpoint yang pakai key "userID" (legacy middleware)
+func GetUserProfile(c *gin.Context) {
+	userID, exists := c.Get("userID") // legacy key, beda dengan "user_id"
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
-			"code":    http.StatusUnauthorized,
-			"message": "User not authenticated",
+			"status":  "error",
+			"message": "Pengguna tidak terautentikasi",
 		})
 		return
 	}
@@ -306,20 +333,18 @@ func GetUserProfile(c *gin.Context) {
 	role, _ := c.Get("role")
 	username, _ := c.Get("username")
 
-	// Get full user details
 	user, err := service.GetOneUser(userID.(string))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"code":    http.StatusNotFound,
-			"message": "User profile not found",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Profil user tidak ditemukan",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "Profile retrieved successfully",
+		"status":  "success",
+		"message": "Profil berhasil diambil",
 		"data": gin.H{
 			"userID":   userID,
 			"username": username,
@@ -329,7 +354,8 @@ func GetUserProfile(c *gin.Context) {
 	})
 }
 
-// UpdateUserPassword memperbarui password user
+// ─── PUT /user/password ───────────────────────────────────────────────────────
+
 func UpdateUserPassword(c *gin.Context) {
 	var input struct {
 		Username    string `json:"username" binding:"required"`
@@ -339,25 +365,26 @@ func UpdateUserPassword(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    http.StatusBadRequest,
-			"message": "Invalid request data",
+			"status":  "error",
+			"message": "Format data tidak valid",
 			"error":   err.Error(),
 		})
 		return
 	}
 
-	err := service.UpdateUserPassword(input.Username, input.NewPassword)
-	if err != nil {
+	// TODO: Validasi OldPassword sebelum update
+	// Contoh: service.VerifyPassword(input.Username, input.OldPassword)
+
+	if err := service.UpdateUserPassword(input.Username, input.NewPassword); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    http.StatusInternalServerError,
-			"message": "Failed to update password",
-			"error":   err.Error(),
+			"status":  "error",
+			"message": "Gagal memperbarui password",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "Password updated successfully",
+		"status":  "success",
+		"message": "Password berhasil diperbarui",
 	})
 }

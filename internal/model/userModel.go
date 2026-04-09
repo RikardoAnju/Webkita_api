@@ -6,112 +6,64 @@ import (
 	"gorm.io/gorm"
 )
 
-// =======================
-// 🔐 CONSTANT ROLE
-// =======================
 const (
 	RoleUser  = "user"
 	RoleAdmin = "admin"
+
+	StatusAktif   = "Y"
+	StatusInaktif = "N"
 )
 
-// =======================
-// 📦 DTO & INPUT
-// =======================
-
-type UserList struct {
-	Username string
-	Email    string
-	GroupID  uint
-	IsAktif  string
-	Password string
-}
-
-type UserInput struct {
-	Username string `json:"username" validate:"required"`
-	Email    string `json:"email" validate:"required,email"`
-	GroupID  uint   `json:"group_id" validate:"required"`
-	IsAktif  string `json:"is_aktif"`
-	Password string `json:"password" validate:"required,min=8"`
-}
-
-type FileInput struct {
-	FileUpload      string `json:"fileusername" validate:"required"`
-	FileDescription string `json:"filedescription" validate:"required"`
-}
-
-// =======================
-// 🗄️ MODEL DATABASE
-// =======================
+// ─── DB Model ─────────────────────────────────────────────────────────────────
 
 type User struct {
-	ID                  uint            `json:"id" gorm:"primaryKey"`
-	Username            string          `json:"username" gorm:"uniqueIndex;not null"`
-	FirstName           string          `json:"first_name"`
-	LastName            string          `json:"last_name"`
-	Email               string          `json:"email" gorm:"uniqueIndex;not null"`
-	Phone               string          `json:"phone" gorm:"index"`
-	Password            string          `json:"-" gorm:"not null"`
-	GroupID             uint            `json:"group_id" gorm:"default:2;not null;index"`
-	Role                string          `json:"role" gorm:"default:user;size:50"` // ✅ FIX
-	IsAktif             string          `json:"is_aktif" gorm:"default:Y;size:1;not null"`
-	SubscribeNewsletter bool            `json:"subscribe_newsletter" gorm:"default:false"`
-	CreatedAt           *time.Time      `json:"createdAt" gorm:"autoCreateTime"`
-	UpdatedAt           *time.Time      `json:"updatedAt" gorm:"autoUpdateTime"`
-	DeletedAt           *gorm.DeletedAt `json:"-" gorm:"index"`
+	ID                  uint   `json:"id" gorm:"primaryKey"`
+	Username            string `json:"username" gorm:"uniqueIndex;not null;size:100"`
+	FirstName           string `json:"first_name" gorm:"size:100"`
+	LastName            string `json:"last_name" gorm:"size:100"`
+	Email               string `json:"email" gorm:"uniqueIndex;not null;size:255"`
+	Phone               string `json:"phone" gorm:"index;size:20"`
+	Password            string `json:"-" gorm:"not null"`
+	GroupID             uint   `json:"group_id" gorm:"default:2;not null;index"`
+	Role                string `json:"role" gorm:"default:user;size:50"`
+	IsAktif             string `json:"is_aktif" gorm:"default:N;size:1;not null"`
+	SubscribeNewsletter bool   `json:"subscribe_newsletter" gorm:"default:false"`
+
+	// Email Verification
+	EmailVerifiedAt   *time.Time `json:"email_verified_at" gorm:"index"`
+	VerificationToken string     `json:"-" gorm:"size:100;index"`
+	TokenExpiresAt    *time.Time `json:"-"`
+
+	CreatedAt *time.Time      `json:"createdAt" gorm:"autoCreateTime"`
+	UpdatedAt *time.Time      `json:"updatedAt" gorm:"autoUpdateTime"`
+	DeletedAt *gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// =======================
-// 📥 REQUEST
-// =======================
+func (User) TableName() string { return "users" }
 
-type RegisterRequest struct {
-	Username            string `json:"username" binding:"required,min=3"`
-	Email               string `json:"email" binding:"required,email"`
-	Password            string `json:"password" binding:"required,min=8"`
-	ConfirmPassword     string `json:"confirmPassword,omitempty"`
-	Role                string `json:"role"`
-	GroupID             uint   `json:"group_id"`
-	IsAktif             string `json:"is_aktif" binding:"omitempty,oneof=Y N"`
-	FirstName           string `json:"first_name"`
-	LastName            string `json:"last_name"`
-	Phone               string `json:"phone"`
-	SubscribeNewsletter bool   `json:"subscribe_newsletter"`
+func (u *User) IsEmailVerified() bool {
+	return u.EmailVerifiedAt != nil
 }
 
-type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+func (u *User) IsTokenExpired() bool {
+	if u.TokenExpiresAt == nil {
+		return true
+	}
+	return time.Now().After(*u.TokenExpiresAt)
 }
 
-type LoginWithUsernameRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
-// =======================
-// 📤 RESPONSE
-// =======================
-
-type UserResponse struct {
-	ID                  uint       `json:"id"`
-	Username            string     `json:"username"`
-	FirstName           string     `json:"first_name,omitempty"`
-	LastName            string     `json:"last_name,omitempty"`
-	Email               string     `json:"email"`
-	Phone               string     `json:"phone,omitempty"`
-	GroupID             uint       `json:"group_id"`
-	Role                string     `json:"role,omitempty"`
-	IsAktif             string     `json:"is_aktif"`
-	SubscribeNewsletter bool       `json:"subscribe_newsletter"`
-	CreatedAt           *time.Time `json:"createdAt"`
-}
-
-// =======================
-// 🧠 MAPPING FUNCTION
-// =======================
-
-func (User) TableName() string {
-	return "users"
+func (u *UserInput) ToUser() User {
+    return User{
+        Username:  u.Username,
+        Email:     u.Email,
+        GroupID:   u.GroupID,
+        IsAktif:   u.IsAktif,
+        Password:  u.Password,
+        FirstName: u.FirstName,
+        LastName:  u.LastName,
+        Phone:     u.Phone,
+        Role:      u.Role,
+    }
 }
 
 func (u *User) ToResponse() UserResponse {
@@ -125,132 +77,120 @@ func (u *User) ToResponse() UserResponse {
 		GroupID:             u.GroupID,
 		Role:                u.Role,
 		IsAktif:             u.IsAktif,
+		IsEmailVerified:     u.IsEmailVerified(),
 		SubscribeNewsletter: u.SubscribeNewsletter,
 		CreatedAt:           u.CreatedAt,
 	}
 }
 
-func (u *User) ToUserList() UserList {
-	return UserList{
-		Username: u.Username,
-		Email:    u.Email,
-		GroupID:  u.GroupID,
-		IsAktif:  u.IsAktif,
-		Password: "",
-	}
+// ─── Request Types ────────────────────────────────────────────────────────────
+
+// RegisterRequest digunakan untuk endpoint POST /auth/register
+type RegisterRequest struct {
+	Username            string `json:"username" binding:"required,min=3,max=50,alphanum"`
+	FirstName           string `json:"first_name" binding:"omitempty,max=100"`
+	LastName            string `json:"last_name" binding:"omitempty,max=100"`
+	Email               string `json:"email" binding:"required,email,max=255"`
+	Phone               string `json:"phone" binding:"omitempty,max=20"`
+	Password            string `json:"password" binding:"required,min=8,max=72"`
+	GroupID             uint   `json:"group_id"`
+	SubscribeNewsletter bool   `json:"subscribe_newsletter"`
 }
 
-func (ui *UserInput) ToUser() User {
-	isAktif := ui.IsAktif
-	if isAktif == "" || (isAktif != "Y" && isAktif != "N") {
-		isAktif = "Y"
-	}
-
-	groupID := ui.GroupID
-	if groupID == 0 {
-		groupID = 2
-	}
-
-	return User{
-		Username: ui.Username,
-		Email:    ui.Email,
-		GroupID:  groupID,
-		IsAktif:  isAktif,
-		Password: ui.Password,
-		Role:     RoleUser, // default
-	}
+// LoginRequest digunakan untuk endpoint POST /auth/login (by email)
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
 }
 
-func (r *RegisterRequest) ToUser() User {
-	isAktif := r.IsAktif
-	if isAktif == "" || (isAktif != "Y" && isAktif != "N") {
-		isAktif = "Y"
-	}
-
-	groupID := r.GroupID
-	if groupID == 0 {
-		groupID = 2
-	}
-
-	role := r.Role
-	if role == "" {
-		role = RoleUser
-	}
-
-	if role != RoleUser && role != RoleAdmin {
-		role = RoleUser
-	}
-
-	return User{
-		Username:            r.Username,
-		Email:               r.Email,
-		Password:            r.Password,
-		FirstName:           r.FirstName,
-		LastName:            r.LastName,
-		Phone:               r.Phone,
-		GroupID:             groupID,
-		Role:                role,
-		IsAktif:             isAktif,
-		SubscribeNewsletter: r.SubscribeNewsletter,
-	}
+// LoginWithUsernameRequest digunakan untuk endpoint POST /auth/login-username
+type LoginWithUsernameRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
 }
 
-// =======================
-// ✅ VALIDATION
-// =======================
-
-func (r *RegisterRequest) Validate() error {
-	if r.Username == "" {
-		return ErrUsernameRequired
-	}
-	if len(r.Username) < 3 {
-		return ErrUsernameMinLength
-	}
-	if r.Email == "" {
-		return ErrEmailRequired
-	}
-	if r.Password == "" {
-		return ErrPasswordRequired
-	}
-	if len(r.Password) < 8 {
-		return ErrPasswordMinLength
-	}
-	if r.ConfirmPassword != "" && r.Password != r.ConfirmPassword {
-		return ErrPasswordMismatch
-	}
-	if r.IsAktif != "" && r.IsAktif != "Y" && r.IsAktif != "N" {
-		return ErrInvalidIsAktif
-	}
-	if r.GroupID != 0 && r.GroupID < 1 {
-		return ErrInvalidGroupID
-	}
-	if r.Role != "" && r.Role != RoleUser && r.Role != RoleAdmin {
-		return ErrInvalidRole
-	}
-	return nil
+// VerifyEmailRequest digunakan untuk endpoint GET /auth/verify-email?token=&email=
+type VerifyEmailRequest struct {
+	Token string `form:"token" binding:"required"`
+	Email string `form:"email" binding:"required,email"`
 }
 
-// =======================
-// ❌ ERROR
-// =======================
+// ResendVerificationRequest digunakan untuk endpoint POST /auth/resend-verification
+type ResendVerificationRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// UserInput digunakan oleh admin untuk insert/update user via middleware validasi
+type UserInput struct {
+	Username  string `json:"username" validate:"required"`
+	Email     string `json:"email" validate:"required,email"`
+	GroupID   uint   `json:"group_id" validate:"required"`
+	IsAktif   string `json:"is_aktif"`
+	Password  string `json:"password" validate:"required,min=8"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Phone     string `json:"phone"`
+	Role      string `json:"role"`
+}
+
+// UserList digunakan untuk query ringan (list/dropdown)
+type UserList struct {
+	Username string
+	Email    string
+	GroupID  uint
+	IsAktif  string
+	Password string
+}
+
+// ─── Response Types ───────────────────────────────────────────────────────────
+
+type UserResponse struct {
+	ID                  uint       `json:"id"`
+	Username            string     `json:"username"`
+	FirstName           string     `json:"first_name,omitempty"`
+	LastName            string     `json:"last_name,omitempty"`
+	Email               string     `json:"email"`
+	Phone               string     `json:"phone,omitempty"`
+	GroupID             uint       `json:"group_id"`
+	Role                string     `json:"role,omitempty"`
+	IsAktif             string     `json:"is_aktif"`
+	IsEmailVerified     bool       `json:"is_email_verified"`
+	SubscribeNewsletter bool       `json:"subscribe_newsletter"`
+	CreatedAt           *time.Time `json:"createdAt"`
+}
+
+// ─── Error Type ───────────────────────────────────────────────────────────────
+
+// AppError adalah error standar seluruh aplikasi.
+// Field Code digunakan controller untuk menentukan HTTP status code.
+type AppError struct {
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
+	Code    int    `json:"-"`
+}
+
+func (e *AppError) Error() string { return e.Message }
+
+// ─── Sentinel Errors ──────────────────────────────────────────────────────────
 
 var (
-	ErrUsernameRequired  = &ValidationError{Field: "username", Message: "Username wajib diisi"}
-	ErrUsernameMinLength = &ValidationError{Field: "username", Message: "Username minimal 3 karakter"}
-	ErrEmailRequired     = &ValidationError{Field: "email", Message: "Email wajib diisi"}
-	ErrPasswordRequired  = &ValidationError{Field: "password", Message: "Password wajib diisi"}
-	ErrPasswordMinLength = &ValidationError{Field: "password", Message: "Password minimal 8 karakter"}
-	ErrPasswordMismatch  = &ValidationError{Field: "confirmPassword", Message: "Password dan konfirmasi password tidak sama"}
-	ErrInvalidIsAktif    = &ValidationError{Field: "is_aktif", Message: "IsAktif hanya boleh Y atau N"}
-	ErrInvalidGroupID    = &ValidationError{Field: "group_id", Message: "ID Grup tidak valid"}
-	ErrInvalidRole       = &ValidationError{Field: "role", Message: "Role hanya boleh user atau admin"} // ✅ FIX
+	// 409 Conflict
+	ErrEmailExists    = &AppError{Field: "email", Message: "Email sudah terdaftar", Code: 409}
+	ErrUsernameExists = &AppError{Field: "username", Message: "Username sudah digunakan", Code: 409}
+
+	// 400 Bad Request
+	ErrInvalidToken         = &AppError{Field: "token", Message: "Token tidak valid atau sudah kadaluwarsa", Code: 400}
+	ErrEmailAlreadyVerified = &AppError{Field: "email", Message: "Email sudah diverifikasi sebelumnya", Code: 400}
+	ErrInvalidGroupID       = &AppError{Field: "group_id", Message: "ID Grup tidak valid", Code: 400}
+	ErrInvalidIsAktif       = &AppError{Field: "is_aktif", Message: "IsAktif hanya boleh Y atau N", Code: 400}
+
+	// 401 Unauthorized
+	ErrInvalidCredentials = &AppError{Field: "credentials", Message: "Email/username atau password salah", Code: 401}
+
+	// 403 Forbidden
+	ErrEmailNotVerified = &AppError{Field: "email", Message: "Email belum diverifikasi, silakan cek inbox Anda", Code: 403}
+	ErrUserInactive     = &AppError{Field: "user", Message: "Akun tidak aktif", Code: 403}
+
+	// 404 Not Found
+	ErrUserNotFound = &AppError{Field: "user", Message: "Pengguna tidak ditemukan", Code: 404}
 )
-
-type ValidationError struct {
-	Field   string
-	Message string
-}
-
-func (e *ValidationError) Error() string {
-	return e.Message
-}

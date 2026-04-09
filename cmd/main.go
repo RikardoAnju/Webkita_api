@@ -12,6 +12,7 @@ import (
 )
 
 func init() {
+	// Load ENV
 	config.InitEnvronment()
 
 	log.Println("🔧 Initializing middleware...")
@@ -36,8 +37,8 @@ func main() {
 
 	router := gin.Default()
 
-	// ✅ FIX DI SINI
-	v1.SetupRoutes(router)
+	// Routes
+	v1.SetupRoutes(router, database.DbWebkita)
 
 	log.Println("🚀 Starting server on port:", port)
 	if err := router.Run(":" + port); err != nil {

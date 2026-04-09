@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -22,7 +23,7 @@ func Connect() {
 
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		PrepareStmt: false, // ✅ FIX: disable prepared statement (WAJIB untuk Supabase)
+		PrepareStmt: false, // ✅ WAJIB untuk Supabase
 	})
 
 	if err != nil {
@@ -31,7 +32,17 @@ func Connect() {
 
 	log.Println("✅ Connected to Supabase PostgreSQL")
 
-	// ✅ tambahan safety (optional tapi bagus)
+	
+	sqlDB, err := DB.DB()
+	if err != nil {
+		log.Fatal("❌ Failed to get sqlDB:", err)
+	}
+
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(5)
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+
+	// ✅ safety extra
 	DB = DB.Session(&gorm.Session{
 		PrepareStmt: false,
 	})
@@ -46,7 +57,6 @@ func Close() {
 	sqlDB.Close()
 }
 
-// helper env
 func GetEnv(key string) string {
 	return os.Getenv(key)
 }

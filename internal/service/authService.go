@@ -1,393 +1,274 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
-	"strings"
 	"time"
 
-	"BackendFramework/internal/database"
 	"BackendFramework/internal/model"
-	"BackendFramework/internal/utils"
-
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 const (
-	GroupIDAdmin = 1
-	GroupIDUser  = 2
+	verificationTokenExpiry = 24 * time.Hour
+	bcryptCost              = 12
 )
 
 type AuthService struct {
-	db *gorm.DB
+	db           *gorm.DB
+	emailService *EmailService
 }
 
-func NewAuthService() *AuthService {
+func NewAuthService(db *gorm.DB) *AuthService {
 	return &AuthService{
-		db: database.DbWebkita,
+		db:           db,
+		emailService: NewEmailService(),
 	}
 }
 
-// =========================================================================
-// REGISTER & LOGIN
-// =========================================================================
+// ─── Register ─────────────────────────────────────────────────────────────────
 
+// Register membuat akun baru dan mengirim email verifikasi secara async
 func (s *AuthService) Register(req model.RegisterRequest) (*model.UserResponse, error) {
-	if req.Username == "" {
-		return nil, errors.New("username wajib diisi")
+	// Cek duplikat email
+	var count int64
+	if err := s.db.Model(&model.User{}).Where("email = ?", req.Email).Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("gagal cek email: %w", err)
 	}
-	if len(req.Username) < 3 {
-		return nil, errors.New("username minimal 3 karakter")
-	}
-	if err := s.cekUsernameAda(req.Username); err != nil {
-		return nil, err
-	}
-	if req.Email == "" {
-		return nil, errors.New("email wajib diisi")
-	}
-	if !s.isValidEmail(req.Email) {
-		return nil, errors.New("format email tidak valid")
-	}
-	if err := s.cekEmailAda(req.Email); err != nil {
-		return nil, err
-	}
-	if req.Phone != "" {
-		if err := s.cekTeleponAda(req.Phone); err != nil {
-			return nil, err
-		}
-	}
-	if req.Password == "" {
-		return nil, errors.New("password wajib diisi")
-	}
-	if len(req.Password) < 8 {
-		return nil, errors.New("password minimal 8 karakter")
-	}
-	if req.ConfirmPassword == "" {
-		return nil, errors.New("konfirmasi password wajib diisi")
-	}
-	if req.Password != req.ConfirmPassword {
-		return nil, errors.New("password dan konfirmasi password tidak sama")
-	}
-	if req.GroupID == 0 {
-		req.GroupID = GroupIDUser
-	}
-	if req.IsAktif == "" {
-		req.IsAktif = "Y"
-	}
-	if !s.isValidGroupID(req.GroupID) {
-		return nil, errors.New("ID grup tidak valid (harus 1 atau 2)")
+	if count > 0 {
+		return nil, model.ErrEmailExists
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	// Cek duplikat username
+	if err := s.db.Model(&model.User{}).Where("username = ?", req.Username).Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("gagal cek username: %w", err)
+	}
+	if count > 0 {
+		return nil, model.ErrUsernameExists
+	}
+
+	// Hash password
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcryptCost)
 	if err != nil {
-		log.Printf("Error hashing password: %v", err)
-		return nil, errors.New("gagal mengenkripsi kata sandi")
+		return nil, fmt.Errorf("gagal hash password: %w", err)
 	}
 
-	now := time.Now()
+	// Generate token verifikasi
+	token, err := generateSecureToken(32)
+	if err != nil {
+		return nil, fmt.Errorf("gagal buat token: %w", err)
+	}
+	expiry := time.Now().Add(verificationTokenExpiry)
+
+	groupID := req.GroupID
+	if groupID == 0 {
+		groupID = 2
+	}
+
 	user := model.User{
 		Username:            req.Username,
-		Email:               req.Email,
-		Password:            string(hashedPassword),
-		GroupID:             req.GroupID,
-		IsAktif:             req.IsAktif,
 		FirstName:           req.FirstName,
 		LastName:            req.LastName,
+		Email:               req.Email,
 		Phone:               req.Phone,
+		Password:            string(hashed),
+		GroupID:             groupID,
+		Role:                model.RoleUser,
+		IsAktif:             model.StatusInaktif, // aktif setelah verifikasi
 		SubscribeNewsletter: req.SubscribeNewsletter,
-		CreatedAt:           &now,
-		UpdatedAt:           &now,
+		VerificationToken:   token,
+		TokenExpiresAt:      &expiry,
 	}
 
 	if err := s.db.Create(&user).Error; err != nil {
-		log.Printf("Error insert user: %v", err)
-		return nil, errors.New("gagal membuat akun pengguna")
+		return nil, fmt.Errorf("gagal simpan user: %w", err)
 	}
 
-	response := user.ToResponse()
-	return &response, nil
+	// Kirim email secara async (tidak block response)
+	go func() {
+		if err := s.emailService.SendVerificationEmail(user.Email, user.Username, token); err != nil {
+			log.Printf("⚠️  Gagal kirim email verifikasi ke %s: %v", user.Email, err)
+		}
+	}()
+
+	log.Printf("✅ Register berhasil: %s (%s)", user.Username, user.Email)
+	resp := user.ToResponse()
+	return &resp, nil
 }
 
-func (s *AuthService) Login(req model.LoginRequest) (*model.UserResponse, string, error) {
-	user, err := s.cariUserAktifBerdasarkanEmail(req.Email)
-	if err != nil {
-		return nil, "", err
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, "", errors.New("email atau kata sandi salah")
-	}
-	token, err := utils.GenerateJWT(user.ID, user.Email)
-	if err != nil {
-		return nil, "", errors.New("gagal membuat token otentikasi")
-	}
-	response := user.ToResponse()
-	return &response, token, nil
-}
+// ─── Verify Email ─────────────────────────────────────────────────────────────
 
-func (s *AuthService) LoginWithUsername(req model.LoginWithUsernameRequest) (*model.UserResponse, string, error) {
-	user, err := s.cariUserAktifBerdasarkanUsername(req.Username)
+// VerifyEmail memvalidasi token dan mengaktifkan akun
+func (s *AuthService) VerifyEmail(req model.VerifyEmailRequest) error {
+	var user model.User
+	err := s.db.Where("email = ? AND verification_token = ?", req.Email, req.Token).First(&user).Error
 	if err != nil {
-		return nil, "", err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.ErrInvalidToken
+		}
+		return fmt.Errorf("gagal query user: %w", err)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, "", errors.New("username atau kata sandi salah")
-	}
-	token, err := utils.GenerateJWT(user.ID, user.Email)
-	if err != nil {
-		return nil, "", errors.New("gagal membuat token otentikasi")
-	}
-	response := user.ToResponse()
-	return &response, token, nil
-}
 
-func (s *AuthService) GetUserByID(userID interface{}) (*model.UserResponse, error) {
-	user, err := s.getUserBerdasarkanID(userID)
-	if err != nil {
-		return nil, err
+	if user.IsEmailVerified() {
+		return model.ErrEmailAlreadyVerified
 	}
-	response := user.ToResponse()
-	return &response, nil
-}
 
-func (s *AuthService) GetOneUserByUsername(username string) *model.User {
-	user, err := s.cariUserAktifBerdasarkanUsername(username)
-	if err != nil {
-		return nil
+	if user.IsTokenExpired() {
+		return model.ErrInvalidToken
 	}
-	return user
-}
-
-// =========================================================================
-// TOKEN
-// =========================================================================
-
-func (s *AuthService) UpsertTokenData(userID string, tokenData map[string]interface{}) bool {
-	var existing model.UserToken
-	err := s.db.Where("user_id = ?", userID).First(&existing).Error
 
 	now := time.Now()
-	tokenData["updated_at"] = now
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// Insert baru
-		token := model.UserToken{
-			UserID:              userID,
-			LastIPAddress:       toString(tokenData["last_ip_address"]),
-			LastUserAgent:       toString(tokenData["last_user_agent"]),
-			AccessToken:         toString(tokenData["access_token"]),
-			RefreshToken:        toString(tokenData["refresh_token"]),
-			RefreshTokenExpired: toTime(tokenData["refresh_token_expired"]),
-			LastLogin:           toTime(tokenData["last_login"]),
-			IsValidToken:        toString(tokenData["is_valid_token"]),
-			IsRememberMe:        toString(tokenData["is_remember_me"]),
-			CreatedAt:           now,
-			UpdatedAt:           now,
-		}
-		if err := s.db.Create(&token).Error; err != nil {
-			log.Printf("Error insert token: %v", err)
-			return false
-		}
-	} else if err == nil {
-		// Update existing
-		updates := map[string]interface{}{
-			"last_ip_address":       tokenData["last_ip_address"],
-			"last_user_agent":       tokenData["last_user_agent"],
-			"access_token":          tokenData["access_token"],
-			"refresh_token":         tokenData["refresh_token"],
-			"refresh_token_expired": tokenData["refresh_token_expired"],
-			"last_login":            tokenData["last_login"],
-			"is_valid_token":        tokenData["is_valid_token"],
-			"is_remember_me":        tokenData["is_remember_me"],
-			"updated_at":            now,
-		}
-		if err := s.db.Model(&existing).Updates(updates).Error; err != nil {
-			log.Printf("Error update token: %v", err)
-			return false
-		}
-	} else {
-		log.Printf("Error checking token: %v", err)
-		return false
-	}
-
-	return true
-}
-
-func (s *AuthService) GetTokenData(userID, refreshToken string) map[string]interface{} {
-	var token model.UserToken
-	err := s.db.Where("user_id = ? AND refresh_token = ? AND is_valid_token = 'Y'", userID, refreshToken).
-		First(&token).Error
+	err = s.db.Model(&user).Updates(map[string]interface{}{
+		"email_verified_at":  now,
+		"is_aktif":           model.StatusAktif,
+		"verification_token": "",
+		"token_expires_at":   nil,
+	}).Error
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Printf("Error getting token: %v", err)
-		}
-		return nil
+		return fmt.Errorf("gagal aktivasi akun: %w", err)
 	}
 
-	return map[string]interface{}{
-		"user_id":               token.UserID,
-		"last_ip_address":       token.LastIPAddress,
-		"last_user_agent":       token.LastUserAgent,
-		"access_token":          token.AccessToken,
-		"refresh_token":         token.RefreshToken,
-		"refresh_token_expired": token.RefreshTokenExpired,
-		"last_login":            token.LastLogin,
-		"is_valid_token":        token.IsValidToken,
-		"is_remember_me":        token.IsRememberMe,
-		"created_at":            token.CreatedAt,
-		"updated_at":            token.UpdatedAt,
-	}
-}
-
-func (s *AuthService) DeleteTokenData(userID string) bool {
-	if err := s.db.Where("user_id = ?", userID).Delete(&model.UserToken{}).Error; err != nil {
-		log.Printf("Error deleting token: %v", err)
-		return false
-	}
-	return true
-}
-
-func (s *AuthService) TestPing() error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return err
-	}
-	return sqlDB.Ping()
-}
-
-// =========================================================================
-// HELPERS
-// =========================================================================
-
-func (s *AuthService) cekUsernameAda(username string) error {
-	var count int64
-	s.db.Model(&model.User{}).Where("username = ? AND deleted_at IS NULL", username).Count(&count)
-	if count > 0 {
-		return errors.New("username sudah terdaftar")
-	}
+	log.Printf("✅ Email verified: %s (%s)", user.Username, user.Email)
 	return nil
 }
 
-func (s *AuthService) cekEmailAda(email string) error {
-	var count int64
-	s.db.Model(&model.User{}).Where("email = ? AND deleted_at IS NULL", email).Count(&count)
-	if count > 0 {
-		return errors.New("email sudah terdaftar")
+// ─── Resend Verification ──────────────────────────────────────────────────────
+
+// ResendVerification membuat token baru dan kirim ulang email verifikasi
+func (s *AuthService) ResendVerification(req model.ResendVerificationRequest) error {
+	var user model.User
+	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Kembalikan sukses walau tidak ditemukan (keamanan: jangan bocorkan info email)
+			return nil
+		}
+		return fmt.Errorf("gagal query user: %w", err)
 	}
+
+	if user.IsEmailVerified() {
+		return model.ErrEmailAlreadyVerified
+	}
+
+	// Buat token baru
+	token, err := generateSecureToken(32)
+	if err != nil {
+		return fmt.Errorf("gagal buat token: %w", err)
+	}
+	expiry := time.Now().Add(verificationTokenExpiry)
+
+	err = s.db.Model(&user).Updates(map[string]interface{}{
+		"verification_token": token,
+		"token_expires_at":   expiry,
+	}).Error
+	if err != nil {
+		return fmt.Errorf("gagal update token: %w", err)
+	}
+
+	go func() {
+		if err := s.emailService.SendResendVerificationEmail(user.Email, user.Username, token); err != nil {
+			log.Printf("⚠️  Gagal kirim ulang email ke %s: %v", user.Email, err)
+		}
+	}()
+
+	log.Printf("📧 Kirim ulang verifikasi ke: %s", user.Email)
 	return nil
 }
 
-func (s *AuthService) cekTeleponAda(phone string) error {
-	var count int64
-	s.db.Model(&model.User{}).Where("phone = ? AND deleted_at IS NULL", phone).Count(&count)
-	if count > 0 {
-		return errors.New("nomor telepon sudah terdaftar")
-	}
-	return nil
-}
+// ─── Login (Email) ────────────────────────────────────────────────────────────
 
-func (s *AuthService) isValidGroupID(groupID uint) bool {
-	return groupID == GroupIDAdmin || groupID == GroupIDUser
-}
-
-func (s *AuthService) isValidEmail(email string) bool {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return false
-	}
-	atIndex := strings.Index(email, "@")
-	if atIndex == -1 || atIndex == 0 || atIndex == len(email)-1 {
-		return false
-	}
-	dotIndex := strings.LastIndex(email, ".")
-	if dotIndex == -1 || dotIndex < atIndex || dotIndex == len(email)-1 {
-		return false
-	}
-	return true
-}
-
-func (s *AuthService) cariUserAktifBerdasarkanEmail(email string) (*model.User, error) {
+func (s *AuthService) Login(req model.LoginRequest) (*model.UserResponse, string, error) {
 	var user model.User
-	err := s.db.Where("email = ? AND is_aktif = 'Y' AND deleted_at IS NULL", email).First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errors.New("pengguna tidak ditemukan")
+	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "", model.ErrInvalidCredentials
+		}
+		return nil, "", err
 	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		return nil, "", model.ErrInvalidCredentials
+	}
+
+	if !user.IsEmailVerified() {
+		return nil, "", model.ErrEmailNotVerified
+	}
+
+	if user.IsAktif != model.StatusAktif {
+		return nil, "", model.ErrUserInactive
+	}
+
+	token, err := generateJWT(user)
 	if err != nil {
-		return nil, errors.New("gagal memuat data pengguna")
+		return nil, "", err
 	}
-	return &user, nil
+
+	resp := user.ToResponse()
+	return &resp, token, nil
 }
 
-func (s *AuthService) cariUserAktifBerdasarkanUsername(username string) (*model.User, error) {
+// ─── Login (Username) ─────────────────────────────────────────────────────────
+
+func (s *AuthService) LoginWithUsername(req model.LoginWithUsernameRequest) (*model.UserResponse, string, error) {
 	var user model.User
-	err := s.db.Where("username = ? AND is_aktif = 'Y' AND deleted_at IS NULL", username).First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errors.New("pengguna tidak ditemukan")
+	if err := s.db.Where("username = ?", req.Username).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "", model.ErrInvalidCredentials
+		}
+		return nil, "", err
 	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		return nil, "", model.ErrInvalidCredentials
+	}
+
+	if !user.IsEmailVerified() {
+		return nil, "", model.ErrEmailNotVerified
+	}
+
+	if user.IsAktif != model.StatusAktif {
+		return nil, "", model.ErrUserInactive
+	}
+
+	token, err := generateJWT(user)
 	if err != nil {
-		return nil, errors.New("gagal memuat data pengguna")
+		return nil, "", err
 	}
-	return &user, nil
+
+	resp := user.ToResponse()
+	return &resp, token, nil
 }
 
-func (s *AuthService) getUserBerdasarkanID(userID interface{}) (*model.User, error) {
+// ─── Get User By ID ───────────────────────────────────────────────────────────
+
+func (s *AuthService) GetUserByID(id uint) (*model.UserResponse, error) {
 	var user model.User
-	err := s.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, errors.New("pengguna tidak ditemukan")
+	if err := s.db.First(&user, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, model.ErrUserNotFound
+		}
+		return nil, err
 	}
-	if err != nil {
-		return nil, errors.New("gagal memuat data pengguna")
+	resp := user.ToResponse()
+	return &resp, nil
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+func generateSecureToken(length int) (string, error) {
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
 	}
-	return &user, nil
+	return hex.EncodeToString(b), nil
 }
 
-// =========================================================================
-// UTILITY
-// =========================================================================
-
-func toString(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	s, _ := v.(string)
-	return s
-}
-
-func toTime(v interface{}) time.Time {
-	if v == nil {
-		return time.Time{}
-	}
-	t, _ := v.(time.Time)
-	return t
-}
-
-// =========================================================================
-// PACKAGE LEVEL (BACKWARD COMPAT)
-// =========================================================================
-
-var defaultAuthService *AuthService
-
-func init() {
-	defaultAuthService = NewAuthService()
-}
-
-func GetOneUserByUsername(username string) *model.User {
-	return defaultAuthService.GetOneUserByUsername(username)
-}
-
-func UpsertTokenData(userID string, tokenData map[string]interface{}) bool {
-	return defaultAuthService.UpsertTokenData(userID, tokenData)
-}
-
-func GetTokenData(userID, refreshToken string) map[string]interface{} {
-	return defaultAuthService.GetTokenData(userID, refreshToken)
-}
-
-func DeleteTokenData(userID string) bool {
-	return defaultAuthService.DeleteTokenData(userID)
-}
-
-func TestPing() error {
-	return defaultAuthService.TestPing()
+// generateJWT — sesuaikan dengan middleware JWT Anda
+func generateJWT(user model.User) (string, error) {
+	// TODO: Ganti dengan pemanggilan middleware.GenerateAccessToken(user.Username)
+	// Contoh placeholder:
+	return fmt.Sprintf("jwt_placeholder_for_%s", user.Username), nil
 }

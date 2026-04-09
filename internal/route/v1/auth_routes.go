@@ -4,21 +4,24 @@ import (
 	"BackendFramework/internal/controller"
 	"BackendFramework/internal/middleware"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-func InitAuthRoutes(r *gin.RouterGroup) {
+func InitAuthRoutes(r *gin.RouterGroup, db *gorm.DB) {
 	auth := r.Group("/auth")
-	
-	// Praktik terbaik: Inisialisasi controller satu kali saja di luar scope rute
-	// daripada memanggil NewAuthController() berkali-kali.
-	authCtrl := controller.NewAuthController()
 
+	authCtrl := controller.NewAuthController(db)
 	{
-		auth.POST("/login", controller.Login)
 		auth.POST("/login-email", authCtrl.LoginWithEmail)
 		auth.POST("/login-username", authCtrl.LoginWithUsername)
 		auth.POST("/register", authCtrl.Register)
-		auth.GET("/logout/:usrId", controller.Logout)
-		auth.POST("/refresh-access", middleware.LogUserActivity(), controller.RefreshAccessToken)
+		auth.GET("/verify-email", authCtrl.VerifyEmail)
+		auth.POST("/resend-verification", authCtrl.ResendVerification)
+	}
+
+	authProtected := auth.Group("")
+	authProtected.Use(middleware.LogUserActivity())
+	{
+		authProtected.GET("/profile", authCtrl.GetProfile)
 	}
 }
