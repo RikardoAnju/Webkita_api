@@ -89,11 +89,9 @@ func (s *AuthService) Register(req model.RegisterRequest) (*model.UserResponse, 
 	}
 
 	// Kirim email secara async (tidak block response)
-	go func() {
-		if err := s.emailService.SendVerificationEmail(user.Email, user.Username, token); err != nil {
-			log.Printf("⚠️  Gagal kirim email verifikasi ke %s: %v", user.Email, err)
-		}
-	}()
+	if err := s.emailService.SendVerificationEmail(user.Email, user.Username, token); err != nil {
+		log.Printf("⚠️  Gagal kirim email verifikasi ke %s: %v", user.Email, err)
+	}
 
 	log.Printf("✅ Register berhasil: %s (%s)", user.Username, user.Email)
 	resp := user.ToResponse()
@@ -168,11 +166,9 @@ func (s *AuthService) ResendVerification(req model.ResendVerificationRequest) er
 		return fmt.Errorf("gagal update token: %w", err)
 	}
 
-	go func() {
-		if err := s.emailService.SendResendVerificationEmail(user.Email, user.Username, token); err != nil {
-			log.Printf("⚠️  Gagal kirim ulang email ke %s: %v", user.Email, err)
-		}
-	}()
+	if err := s.emailService.SendResendVerificationEmail(user.Email, user.Username, token); err != nil {
+		log.Printf("⚠️  Gagal kirim ulang email ke %s: %v", user.Email, err)
+	}
 
 	log.Printf("📧 Kirim ulang verifikasi ke: %s", user.Email)
 	return nil
