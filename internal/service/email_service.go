@@ -175,23 +175,7 @@ const verificationEmailTemplate = `<!DOCTYPE html>
             </p>
 
             <!-- Stats strip -->
-            <table width="100%" cellpadding="0" cellspacing="0"
-                   style="margin-bottom:28px;background:#f9fafb;border-radius:10px;border:1px solid #f3f4f6;">
-              <tr>
-                <td style="padding:16px 20px;border-right:1px solid #f3f4f6;" width="33%">
-                  <p style="margin:0;font-size:12px;color:#9ca3af;">Pengguna Aktif</p>
-                  <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">100k+</p>
-                </td>
-                <td style="padding:16px 20px;border-right:1px solid #f3f4f6;" width="33%">
-                  <p style="margin:0;font-size:12px;color:#9ca3af;">Respon Cepat</p>
-                  <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">&lt; 24 Jam</p>
-                </td>
-                <td style="padding:16px 20px;" width="33%">
-                  <p style="margin:0;font-size:12px;color:#9ca3af;">Garansi</p>
-                  <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">Keamanan</p>
-                </td>
-              </tr>
-            </table>
+            
 
             <!-- Info box -->
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
@@ -213,12 +197,7 @@ const verificationEmailTemplate = `<!DOCTYPE html>
                     Verifikasi Email Saya &rarr;
                   </a>
                 </td>
-                <td width="50%">
-                  <a href="{{.AppURL}}"
-                     style="display:block;text-align:center;padding:14px 20px;background:#fff;color:#111827;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;border:1.5px solid #d1d5db;">
-                    Pelajari Lebih Lanjut
-                  </a>
-                </td>
+            
               </tr>
             </table>
 
