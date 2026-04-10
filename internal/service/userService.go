@@ -145,7 +145,7 @@ func InsertUser(userData *model.UserInput) error {
 	return nil
 }
 
-// GetCurrentUserProfile mengambil profil user yang sedang login berdasarkan user ID dari JWT
+
 func GetCurrentUserProfile(userID uint) (*model.User, error) {
 	if userID == 0 {
 		return nil, errors.New("user ID cannot be zero")

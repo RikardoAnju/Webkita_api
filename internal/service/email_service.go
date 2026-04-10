@@ -144,76 +144,104 @@ const verificationEmailTemplate = `<!DOCTYPE html>
   <title>Verifikasi Email - {{.AppName}}</title>
 </head>
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:48px 16px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:40px 16px;">
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0"
-             style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+             style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
 
         <!-- Header -->
         <tr>
-          <td style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);padding:36px 48px;text-align:center;">
-            <h1 style="margin:0;color:#fff;font-size:26px;font-weight:700;">{{.AppName}}</h1>
-            <p style="margin:8px 0 0;color:rgba(255,255,255,0.75);font-size:14px;">Verifikasi Akun Anda</p>
+          <td style="padding:28px 48px;border-bottom:1px solid #f3f4f6;">
+            <table width="100%"><tr>
+              <td><span style="font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{{.AppName}}</span></td>
+              <td align="right">
+                <span style="background:#EFF6FF;color:#1d4ed8;font-size:12px;font-weight:600;padding:5px 14px;border-radius:20px;border:1px solid #bfdbfe;">Platform Teknologi #1</span>
+              </td>
+            </tr></table>
           </td>
         </tr>
+
+        <!-- Accent bar -->
+        <tr><td style="height:4px;background:linear-gradient(90deg,#111827 0%,#2563EB 60%,#93c5fd 100%);"></td></tr>
 
         <!-- Body -->
         <tr>
           <td style="padding:40px 48px;">
-            <h2 style="margin:0 0 16px;color:#1e1e2e;font-size:20px;">Halo, {{.Username}}! 👋</h2>
-            <p style="margin:0 0 24px;color:#52525b;line-height:1.7;font-size:15px;">
-              Terima kasih telah mendaftar di <strong style="color:#4F46E5;">{{.AppName}}</strong>.
-              Satu langkah lagi! Verifikasi email Anda untuk mengaktifkan akun.
+
+            <p style="margin:0 0 6px;font-size:13px;color:#6b7280;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;">Verifikasi Akun</p>
+            <h2 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;line-height:1.3;">Halo, <span style="color:#2563EB;">{{.Username}}</span>!</h2>
+            <p style="margin:0 0 28px;color:#4b5563;line-height:1.7;font-size:15px;">
+              Terima kasih telah bergabung di <strong style="color:#111827;">{{.AppName}}</strong> — platform marketplace yang menghubungkan Anda dengan developer profesional terbaik. Satu langkah lagi untuk mengaktifkan akun Anda.
             </p>
 
-            <!-- Info -->
+            <!-- Stats strip -->
+            <table width="100%" cellpadding="0" cellspacing="0"
+                   style="margin-bottom:28px;background:#f9fafb;border-radius:10px;border:1px solid #f3f4f6;">
+              <tr>
+                <td style="padding:16px 20px;border-right:1px solid #f3f4f6;" width="33%">
+                  <p style="margin:0;font-size:12px;color:#9ca3af;">Pengguna Aktif</p>
+                  <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">100k+</p>
+                </td>
+                <td style="padding:16px 20px;border-right:1px solid #f3f4f6;" width="33%">
+                  <p style="margin:0;font-size:12px;color:#9ca3af;">Respon Cepat</p>
+                  <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">&lt; 24 Jam</p>
+                </td>
+                <td style="padding:16px 20px;" width="33%">
+                  <p style="margin:0;font-size:12px;color:#9ca3af;">Garansi</p>
+                  <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">Keamanan</p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Info box -->
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
               <tr>
-                <td style="background:#F5F3FF;border-left:4px solid #4F46E5;border-radius:0 6px 6px 0;padding:14px 18px;">
-                  <p style="margin:0;color:#6D28D9;font-size:13px;">
-                    ⏰ Link verifikasi berlaku <strong>24 jam</strong> sejak email ini dikirim.
+                <td style="background:#EFF6FF;border-left:3px solid #2563EB;border-radius:0 8px 8px 0;padding:14px 18px;">
+                  <p style="margin:0;color:#1d4ed8;font-size:13px;line-height:1.6;">
+                    Link verifikasi ini berlaku selama <strong>24 jam</strong> sejak email dikirim. Jika sudah kedaluwarsa, Anda dapat meminta link baru melalui halaman login.
                   </p>
                 </td>
               </tr>
             </table>
 
-            <!-- Button -->
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
-              <tr>
-                <td align="center">
-                  <a href="{{.VerifyURL}}"
-                     style="display:inline-block;padding:15px 44px;background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;">
-                    ✅ Verifikasi Email Saya
-                  </a>
-                </td>
-              </tr>
-            </table>
-
-            <!-- Fallback -->
+            <!-- CTA Buttons -->
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
-                <td style="background:#f9fafb;border-radius:6px;padding:16px;border:1px solid #e5e7eb;">
-                  <p style="margin:0 0 6px;color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">
-                    Atau salin link ini:
-                  </p>
-                  <a href="{{.VerifyURL}}" style="color:#4F46E5;font-size:12px;word-break:break-all;text-decoration:none;">
-                    {{.VerifyURL}}
+                <td style="padding-right:12px;" width="50%">
+                  <a href="{{.VerifyURL}}"
+                     style="display:block;text-align:center;padding:14px 20px;background:#111827;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">
+                    Verifikasi Email Saya &rarr;
+                  </a>
+                </td>
+                <td width="50%">
+                  <a href="{{.AppURL}}"
+                     style="display:block;text-align:center;padding:14px 20px;background:#fff;color:#111827;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;border:1.5px solid #d1d5db;">
+                    Pelajari Lebih Lanjut
                   </a>
                 </td>
               </tr>
             </table>
+
           </td>
         </tr>
 
         <!-- Footer -->
         <tr>
-          <td style="border-top:1px solid #f3f4f6;padding:24px 48px;text-align:center;">
-            <p style="margin:0 0 4px;color:#9ca3af;font-size:12px;">
-              Jika Anda tidak mendaftar di {{.AppName}}, abaikan email ini.
-            </p>
-            <p style="margin:0;color:#d1d5db;font-size:11px;">
-              © {{.Year}} {{.AppName}} ·
-              <a href="{{.AppURL}}" style="color:#4F46E5;text-decoration:none;">{{.AppURL}}</a>
+          <td style="border-top:1px solid #f3f4f6;padding:24px 48px;background:#f9fafb;">
+            <table width="100%"><tr>
+              <td>
+                <p style="margin:0 0 2px;font-weight:700;font-size:13px;color:#111827;">{{.AppName}}</p>
+                <p style="margin:0;color:#9ca3af;font-size:11px;">Hubungkan Bisnis Anda dengan Developer Terbaik</p>
+              </td>
+              <td align="right">
+                <p style="margin:0;color:#9ca3af;font-size:11px;text-align:right;">
+                  Beranda &nbsp;&middot;&nbsp; Cara Kerja &nbsp;&middot;&nbsp; Harga<br>
+                  <a href="{{.AppURL}}" style="color:#2563EB;text-decoration:none;">{{.AppURL}}</a>
+                </p>
+              </td>
+            </tr></table>
+            <p style="margin:16px 0 0;color:#d1d5db;font-size:11px;text-align:center;">
+              Jika Anda tidak mendaftar di {{.AppName}}, abaikan email ini. &nbsp;&middot;&nbsp; &copy; {{.Year}} {{.AppName}}
             </p>
           </td>
         </tr>
