@@ -76,6 +76,27 @@ func (s *EmailService) SendResendVerificationEmail(toEmail, username, token stri
 	return s.SendVerificationEmail(toEmail, username, token)
 }
 
+// SendResetPasswordOTPEmail - kirim OTP reset password
+func (s *EmailService) SendResetPasswordOTPEmail(toEmail, username, otp string) error {
+	html, err := s.renderHTML(resetPasswordOTPTemplate, map[string]string{
+		"AppName":  s.appName,
+		"Username": username,
+		"OTP":      otp,
+		"AppURL":   s.appURL,
+		"Year":     fmt.Sprintf("%d", time.Now().Year()),
+	})
+	if err != nil {
+		return fmt.Errorf("render template gagal: %w", err)
+	}
+
+	plain := fmt.Sprintf(
+		"Halo %s,\n\nKode OTP reset password Anda: %s\n\nKode berlaku 5 menit. Jangan bagikan ke siapapun.\n\nJika tidak merasa meminta reset password, abaikan email ini.\n\n%s",
+		username, otp, s.appName,
+	)
+
+	return s.send(toEmail, username, fmt.Sprintf("[%s] Kode OTP Reset Password", s.appName), html, plain)
+}
+
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
 func (s *EmailService) send(toEmail, toName, subject, html, text string) error {
@@ -103,7 +124,6 @@ func (s *EmailService) send(toEmail, toName, subject, html, text string) error {
 	}
 	defer resp.Body.Close()
 
-	// MailerSend mengembalikan 202 Accepted jika berhasil
 	if resp.StatusCode != http.StatusAccepted {
 		var errResp map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&errResp)
@@ -134,7 +154,7 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// ─── Email Template ───────────────────────────────────────────────────────────
+// ─── Template: Verifikasi Email ───────────────────────────────────────────────
 
 const verificationEmailTemplate = `<!DOCTYPE html>
 <html lang="id">
@@ -148,6 +168,72 @@ const verificationEmailTemplate = `<!DOCTYPE html>
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0"
              style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+        <tr>
+          <td style="padding:28px 48px;border-bottom:1px solid #f3f4f6;">
+            <table width="100%"><tr>
+              <td><span style="font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{{.AppName}}</span></td>
+              <td align="right">
+                <span style="background:#EFF6FF;color:#1d4ed8;font-size:12px;font-weight:600;padding:5px 14px;border-radius:20px;border:1px solid #bfdbfe;">Platform Teknologi #1</span>
+              </td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="height:4px;background:linear-gradient(90deg,#111827 0%,#2563EB 60%,#93c5fd 100%);"></td></tr>
+        <tr>
+          <td style="padding:40px 48px;">
+            <p style="margin:0 0 6px;font-size:13px;color:#6b7280;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;">Verifikasi Akun</p>
+            <h2 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;line-height:1.3;">Halo, <span style="color:#2563EB;">{{.Username}}</span>!</h2>
+            <p style="margin:0 0 28px;color:#4b5563;line-height:1.7;font-size:15px;">
+              Terima kasih telah bergabung di <strong style="color:#111827;">{{.AppName}}</strong>. Satu langkah lagi untuk mengaktifkan akun Anda.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr>
+                <td style="background:#EFF6FF;border-left:3px solid #2563EB;border-radius:0 8px 8px 0;padding:14px 18px;">
+                  <p style="margin:0;color:#1d4ed8;font-size:13px;line-height:1.6;">
+                    Link verifikasi ini berlaku selama <strong>24 jam</strong>. Jika sudah kedaluwarsa, Anda dapat meminta link baru melalui halaman login.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td width="50%">
+                  <a href="{{.VerifyURL}}"
+                     style="display:block;text-align:center;padding:14px 20px;background:#111827;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">
+                    Verifikasi Email Saya &rarr;
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="border-top:1px solid #f3f4f6;padding:24px 48px;background:#f9fafb;">
+            <p style="margin:16px 0 0;color:#d1d5db;font-size:11px;text-align:center;">
+              Jika Anda tidak mendaftar di {{.AppName}}, abaikan email ini. &nbsp;&middot;&nbsp; &copy; {{.Year}} {{.AppName}}
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
+
+// ─── Template: Reset Password OTP ────────────────────────────────────────────
+
+const resetPasswordOTPTemplate = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Reset Password - {{.AppName}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
 
         <!-- Header -->
         <tr>
@@ -155,7 +241,7 @@ const verificationEmailTemplate = `<!DOCTYPE html>
             <table width="100%"><tr>
               <td><span style="font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{{.AppName}}</span></td>
               <td align="right">
-                <span style="background:#EFF6FF;color:#1d4ed8;font-size:12px;font-weight:600;padding:5px 14px;border-radius:20px;border:1px solid #bfdbfe;">Platform Teknologi #1</span>
+                <span style="background:#FEF3C7;color:#92400e;font-size:12px;font-weight:600;padding:5px 14px;border-radius:20px;border:1px solid #fde68a;">Reset Password</span>
               </td>
             </tr></table>
           </td>
@@ -167,40 +253,38 @@ const verificationEmailTemplate = `<!DOCTYPE html>
         <!-- Body -->
         <tr>
           <td style="padding:40px 48px;">
-
-            <p style="margin:0 0 6px;font-size:13px;color:#6b7280;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;">Verifikasi Akun</p>
+            <p style="margin:0 0 6px;font-size:13px;color:#6b7280;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;">Kode OTP</p>
             <h2 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;line-height:1.3;">Halo, <span style="color:#2563EB;">{{.Username}}</span>!</h2>
             <p style="margin:0 0 28px;color:#4b5563;line-height:1.7;font-size:15px;">
-              Terima kasih telah bergabung di <strong style="color:#111827;">{{.AppName}}</strong> — platform marketplace yang menghubungkan Anda dengan developer profesional terbaik. Satu langkah lagi untuk mengaktifkan akun Anda.
+              Kami menerima permintaan reset password untuk akun <strong style="color:#111827;">{{.AppName}}</strong> Anda.
+              Gunakan kode OTP berikut untuk melanjutkan proses reset password.
             </p>
 
-            <!-- Stats strip -->
-            
-
-            <!-- Info box -->
+            <!-- OTP Box -->
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
               <tr>
-                <td style="background:#EFF6FF;border-left:3px solid #2563EB;border-radius:0 8px 8px 0;padding:14px 18px;">
-                  <p style="margin:0;color:#1d4ed8;font-size:13px;line-height:1.6;">
-                    Link verifikasi ini berlaku selama <strong>24 jam</strong> sejak email dikirim. Jika sudah kedaluwarsa, Anda dapat meminta link baru melalui halaman login.
+                <td align="center" style="background:#f9fafb;border:2px dashed #e5e7eb;border-radius:12px;padding:32px 24px;">
+                  <p style="margin:0 0 8px;font-size:13px;color:#6b7280;font-weight:500;text-transform:uppercase;letter-spacing:1px;">Kode OTP Anda</p>
+                  <p style="margin:0;font-size:48px;font-weight:800;color:#111827;letter-spacing:12px;font-family:'Courier New',monospace;">{{.OTP}}</p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Warning box -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr>
+                <td style="background:#FEF3C7;border-left:3px solid #F59E0B;border-radius:0 8px 8px 0;padding:14px 18px;">
+                  <p style="margin:0;color:#92400e;font-size:13px;line-height:1.6;">
+                    ⚠️ Kode ini berlaku selama <strong>5 menit</strong> dan hanya bisa digunakan sekali.
+                    Jangan bagikan kode ini kepada siapapun termasuk tim {{.AppName}}.
                   </p>
                 </td>
               </tr>
             </table>
 
-            <!-- CTA Buttons -->
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="padding-right:12px;" width="50%">
-                  <a href="{{.VerifyURL}}"
-                     style="display:block;text-align:center;padding:14px 20px;background:#111827;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">
-                    Verifikasi Email Saya &rarr;
-                  </a>
-                </td>
-            
-              </tr>
-            </table>
-
+            <p style="margin:0;color:#9ca3af;font-size:13px;line-height:1.6;">
+              Jika Anda tidak meminta reset password, abaikan email ini. Akun Anda tetap aman.
+            </p>
           </td>
         </tr>
 
@@ -214,13 +298,12 @@ const verificationEmailTemplate = `<!DOCTYPE html>
               </td>
               <td align="right">
                 <p style="margin:0;color:#9ca3af;font-size:11px;text-align:right;">
-                  Beranda &nbsp;&middot;&nbsp; Cara Kerja &nbsp;&middot;&nbsp; Harga<br>
                   <a href="{{.AppURL}}" style="color:#2563EB;text-decoration:none;">{{.AppURL}}</a>
                 </p>
               </td>
             </tr></table>
             <p style="margin:16px 0 0;color:#d1d5db;font-size:11px;text-align:center;">
-              Jika Anda tidak mendaftar di {{.AppName}}, abaikan email ini. &nbsp;&middot;&nbsp; &copy; {{.Year}} {{.AppName}}
+              &copy; {{.Year}} {{.AppName}} &nbsp;&middot;&nbsp; Email ini dikirim otomatis, jangan balas email ini.
             </p>
           </td>
         </tr>

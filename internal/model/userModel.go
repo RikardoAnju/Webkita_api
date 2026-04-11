@@ -53,17 +53,17 @@ func (u *User) IsTokenExpired() bool {
 }
 
 func (u *UserInput) ToUser() User {
-    return User{
-        Username:  u.Username,
-        Email:     u.Email,
-        GroupID:   u.GroupID,
-        IsAktif:   u.IsAktif,
-        Password:  u.Password,
-        FirstName: u.FirstName,
-        LastName:  u.LastName,
-        Phone:     u.Phone,
-        Role:      u.Role,
-    }
+	return User{
+		Username:  u.Username,
+		Email:     u.Email,
+		GroupID:   u.GroupID,
+		IsAktif:   u.IsAktif,
+		Password:  u.Password,
+		FirstName: u.FirstName,
+		LastName:  u.LastName,
+		Phone:     u.Phone,
+		Role:      u.Role,
+	}
 }
 
 func (u *User) ToResponse() UserResponse {
@@ -85,7 +85,6 @@ func (u *User) ToResponse() UserResponse {
 
 // ─── Request Types ────────────────────────────────────────────────────────────
 
-// RegisterRequest digunakan untuk endpoint POST /auth/register
 type RegisterRequest struct {
 	Username            string `json:"username" binding:"required,min=3,max=50,alphanum"`
 	FirstName           string `json:"first_name" binding:"omitempty,max=100"`
@@ -97,30 +96,25 @@ type RegisterRequest struct {
 	SubscribeNewsletter bool   `json:"subscribe_newsletter"`
 }
 
-// LoginRequest digunakan untuk endpoint POST /auth/login (by email)
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 }
 
-// LoginWithUsernameRequest digunakan untuk endpoint POST /auth/login-username
 type LoginWithUsernameRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
-// VerifyEmailRequest digunakan untuk endpoint GET /auth/verify-email?token=&email=
 type VerifyEmailRequest struct {
 	Token string `form:"token" binding:"required"`
 	Email string `form:"email" binding:"required,email"`
 }
 
-// ResendVerificationRequest digunakan untuk endpoint POST /auth/resend-verification
 type ResendVerificationRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
-// UserInput digunakan oleh admin untuk insert/update user via middleware validasi
 type UserInput struct {
 	Username  string `json:"username" validate:"required"`
 	Email     string `json:"email" validate:"required,email"`
@@ -133,13 +127,28 @@ type UserInput struct {
 	Role      string `json:"role"`
 }
 
-// UserList digunakan untuk query ringan (list/dropdown)
 type UserList struct {
 	Username string
 	Email    string
 	GroupID  uint
 	IsAktif  string
 	Password string
+}
+
+// ─── Reset Password Request Types ────────────────────────────────────────────
+
+// ForgotPasswordRequest - step 1: minta OTP dikirim ke email
+// Response: { otp_token: "<jwt>" }
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// ResetPasswordRequest - step 2: kirim otp_token (JWT) + OTP dari email + password baru
+type ResetPasswordRequest struct {
+	OTPToken        string `json:"otp_token"        binding:"required"` // JWT dari step 1
+	OTP             string `json:"otp"              binding:"required,len=6"`
+	NewPassword     string `json:"new_password"     binding:"required,min=8"`
+	ConfirmPassword string `json:"confirm_password" binding:"required,min=8"`
 }
 
 // ─── Response Types ───────────────────────────────────────────────────────────
@@ -161,8 +170,6 @@ type UserResponse struct {
 
 // ─── Error Type ───────────────────────────────────────────────────────────────
 
-// AppError adalah error standar seluruh aplikasi.
-// Field Code digunakan controller untuk menentukan HTTP status code.
 type AppError struct {
 	Field   string `json:"field,omitempty"`
 	Message string `json:"message"`
@@ -183,6 +190,8 @@ var (
 	ErrEmailAlreadyVerified = &AppError{Field: "email", Message: "Email sudah diverifikasi sebelumnya", Code: 400}
 	ErrInvalidGroupID       = &AppError{Field: "group_id", Message: "ID Grup tidak valid", Code: 400}
 	ErrInvalidIsAktif       = &AppError{Field: "is_aktif", Message: "IsAktif hanya boleh Y atau N", Code: 400}
+	ErrPasswordMismatch     = &AppError{Field: "confirm_password", Message: "Password baru dan konfirmasi tidak cocok", Code: 400}
+	ErrOTPInvalid           = &AppError{Field: "otp", Message: "Kode OTP tidak valid atau sudah kedaluwarsa", Code: 400}
 
 	// 401 Unauthorized
 	ErrInvalidCredentials = &AppError{Field: "credentials", Message: "Email/username atau password salah", Code: 401}
@@ -193,4 +202,7 @@ var (
 
 	// 404 Not Found
 	ErrUserNotFound = &AppError{Field: "user", Message: "Pengguna tidak ditemukan", Code: 404}
+
+	// 429 Too Many Requests
+	ErrTooManyRequests = &AppError{Field: "request", Message: "Terlalu banyak permintaan, coba lagi dalam 1 menit", Code: 429}
 )

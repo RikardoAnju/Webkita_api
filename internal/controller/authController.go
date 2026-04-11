@@ -22,7 +22,7 @@ func NewAuthController(db *gorm.DB) *AuthController {
 	}
 }
 
-// ─── Helper: JSON Response ────────────────────────────────────────────────────
+// ─── Helper ───────────────────────────────────────────────────────────────────
 
 func respond(c *gin.Context, status int, message string, data interface{}) {
 	body := gin.H{"status": statusText(status), "message": message}
@@ -61,17 +61,6 @@ func statusText(code int) string {
 
 // ─── POST /auth/register ──────────────────────────────────────────────────────
 
-// Register godoc
-// @Summary      Registrasi akun baru
-// @Description  Membuat akun dan mengirim email verifikasi ke alamat yang didaftarkan
-// @Tags         Auth
-// @Accept       json
-// @Produce      json
-// @Param        body body model.RegisterRequest true "Data registrasi"
-// @Success      201  {object}  map[string]interface{}
-// @Failure      400  {object}  map[string]interface{}
-// @Failure      409  {object}  map[string]interface{}
-// @Router       /auth/register [post]
 func (ctrl *AuthController) Register(c *gin.Context) {
 	var req model.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -103,16 +92,6 @@ func (ctrl *AuthController) Register(c *gin.Context) {
 
 // ─── GET /auth/verify-email ───────────────────────────────────────────────────
 
-// VerifyEmail godoc
-// @Summary      Verifikasi email
-// @Description  Memvalidasi token dari link email dan mengaktifkan akun
-// @Tags         Auth
-// @Produce      json
-// @Param        token query string true "Token verifikasi"
-// @Param        email query string true "Email pengguna"
-// @Success      200   {object} map[string]interface{}
-// @Failure      400   {object} map[string]interface{}
-// @Router       /auth/verify-email [get]
 func (ctrl *AuthController) VerifyEmail(c *gin.Context) {
 	var req model.VerifyEmailRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -140,15 +119,6 @@ func (ctrl *AuthController) VerifyEmail(c *gin.Context) {
 
 // ─── POST /auth/resend-verification ──────────────────────────────────────────
 
-// ResendVerification godoc
-// @Summary      Kirim ulang email verifikasi
-// @Description  Mengirim ulang link verifikasi ke email yang belum diverifikasi
-// @Tags         Auth
-// @Accept       json
-// @Produce      json
-// @Param        body body model.ResendVerificationRequest true "Email"
-// @Success      200  {object} map[string]interface{}
-// @Router       /auth/resend-verification [post]
 func (ctrl *AuthController) ResendVerification(c *gin.Context) {
 	var req model.ResendVerificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -166,7 +136,6 @@ func (ctrl *AuthController) ResendVerification(c *gin.Context) {
 		return
 	}
 
-	// Selalu kembalikan pesan yang sama (keamanan: tidak bocorkan apakah email terdaftar)
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
 		"message": "Jika email Anda terdaftar dan belum diverifikasi, email baru akan segera dikirim.",
@@ -238,7 +207,6 @@ func (ctrl *AuthController) LoginWithUsername(c *gin.Context) {
 // ─── GET /auth/profile ────────────────────────────────────────────────────────
 
 func (ctrl *AuthController) GetProfile(c *gin.Context) {
-	// user_id disimpan sebagai uint di context oleh middleware JWT
 	rawID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -248,7 +216,6 @@ func (ctrl *AuthController) GetProfile(c *gin.Context) {
 		return
 	}
 
-	// Support string atau uint dari context
 	var userID uint
 	switch v := rawID.(type) {
 	case uint:
@@ -277,5 +244,65 @@ func (ctrl *AuthController) GetProfile(c *gin.Context) {
 		"status":  "success",
 		"message": "Profil berhasil diambil",
 		"data":    user,
+	})
+}
+
+// ─── POST /auth/forgot-password ──────────────────────────────────────────────
+
+func (ctrl *AuthController) ForgotPassword(c *gin.Context) {
+	var req model.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "Format email tidak valid",
+		})
+		return
+	}
+
+	log.Printf("📝 Forgot password: %s", req.Email)
+
+	otpToken, err := ctrl.authService.ForgotPassword(req)
+	if err != nil {
+		log.Printf("❌ Forgot password error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "Terjadi kesalahan internal server",
+		})
+		return
+	}
+
+	// Selalu 200 — jangan bocorkan apakah email terdaftar
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "success",
+		"message":   "Jika email terdaftar, kode OTP akan dikirim dalam beberapa saat.",
+		"otp_token": otpToken, // FE simpan ini, kirim balik saat reset-password
+	})
+}
+
+// ─── POST /auth/reset-password ────────────────────────────────────────────────
+
+func (ctrl *AuthController) ResetPassword(c *gin.Context) {
+	var req model.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "Format data tidak valid",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	log.Printf("📝 Reset password request")
+
+	if err := ctrl.authService.ResetPassword(req); err != nil {
+		log.Printf("❌ Reset password failed: %v", err)
+		respondError(c, err)
+		return
+	}
+
+	log.Printf("✅ Reset password sukses")
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Password berhasil direset. Silakan login dengan password baru.",
 	})
 }
