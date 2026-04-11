@@ -20,7 +20,10 @@ import (
 	"BackendFramework/internal/model"
 )
 
-var jwtSecret = []byte(config.JWT_SIGNATURE_KEY)
+// ✅ Ganti variable global dengan function
+func getJwtSecret() []byte {
+	return []byte(config.JWT_SIGNATURE_KEY)
+}
 
 type AccessClaims struct {
 	UserID string `json:"user_id"`
@@ -37,7 +40,7 @@ func GenerateAccessToken(userID string) (string, error) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	return token.SignedString(getJwtSecret()) // ✅
 }
 
 func GenerateRefreshToken() (string, error) {
@@ -69,7 +72,7 @@ func GenerateRefreshToken() (string, error) {
 
 func ValidateToken(tokenString string) (*AccessClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &AccessClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
+		return getJwtSecret(), nil // ✅
 	})
 	if err != nil {
 		return nil, err
@@ -80,8 +83,7 @@ func ValidateToken(tokenString string) (*AccessClaims, error) {
 		return nil, errors.New("invalid token")
 	}
 
-	
-	var accessToken model.TokenData 
+	var accessToken model.TokenData
 	err = database.DbWebkita.
 		Where("user_id = ?", claims.UserID).
 		First(&accessToken).Error
