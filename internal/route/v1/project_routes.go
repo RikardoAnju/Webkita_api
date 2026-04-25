@@ -2,22 +2,28 @@ package v1
 
 import (
 	"BackendFramework/internal/controller"
-	"BackendFramework/internal/service"
+	"BackendFramework/internal/middleware"
+
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-func InitProjectRoutes(r *gin.RouterGroup, db *gorm.DB) {
+func ProjectRoutes(r *gin.RouterGroup) {
 	project := r.Group("/project")
-
-	projectService := service.NewProjectService(db) // pakai db dari parameter, bukan hardcoded
-	projectCtrl := controller.NewProjectController(projectService)
+	project.Use(middleware.JWTAuthMiddleware())
 	{
-		project.POST("", projectCtrl.CreateProject)
-		project.GET("", projectCtrl.GetAllProjects)
-		project.GET("/:projectId", projectCtrl.GetProjectByID)
-		project.GET("/user/:userId", projectCtrl.GetProjectsByUserID)
-		project.PATCH("/:projectId/status", projectCtrl.UpdateProjectStatus)
-		project.DELETE("/:projectId", projectCtrl.DeleteProject)
+		// User routes (semua user login)
+		project.POST("", controller.CreateProject)      // POST   /v1/project      - ajukan project baru
+		project.GET("/my", controller.GetMyProjects)    // GET    /v1/project/my   - project milik saya
+		project.GET("/:id", controller.GetProjectByID)  // GET    /v1/project/:id  - detail project
+
+		// Admin only routes
+		admin := project.Group("")
+		admin.Use(middleware.AdminMiddleware())
+		{
+			admin.GET("", controller.GetAllProjects)                   // GET    /v1/project
+			admin.GET("/user/:userId", controller.GetProjectsByUser)   // GET    /v1/project/user/:userId
+			admin.PATCH("/:id/status", controller.UpdateProjectStatus) // PATCH  /v1/project/:id/status
+			admin.DELETE("/:id", controller.DeleteProject)             // DELETE /v1/project/:id
+		}
 	}
 }

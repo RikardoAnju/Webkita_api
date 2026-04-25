@@ -22,7 +22,7 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB) {
 	{
 		InitAuthRoutes(apiV1, db)
 		InitUserRoutes(apiV1, db)
-		InitProjectRoutes(apiV1, db)
+		
 		InitMiscRoutes(apiV1, db)
 	}
 }

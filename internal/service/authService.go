@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"BackendFramework/internal/middleware"
 	"BackendFramework/internal/model"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -22,10 +23,9 @@ const (
 	bcryptCost              = 12
 )
 
-// otpClaims adalah payload JWT untuk OTP reset password
 type otpClaims struct {
 	Email   string `json:"email"`
-	OTPHash string `json:"otp_hash"` // bcrypt hash dari OTP asli
+	OTPHash string `json:"otp_hash"`
 	jwt.RegisteredClaims
 }
 
@@ -40,8 +40,6 @@ func NewAuthService(db *gorm.DB) *AuthService {
 		emailService: NewEmailService(),
 	}
 }
-
-// ─── Register ─────────────────────────────────────────────────────────────────
 
 func (s *AuthService) Register(req model.RegisterRequest) (*model.UserResponse, error) {
 	var count int64
@@ -103,8 +101,6 @@ func (s *AuthService) Register(req model.RegisterRequest) (*model.UserResponse, 
 	return &resp, nil
 }
 
-// ─── Verify Email ─────────────────────────────────────────────────────────────
-
 func (s *AuthService) VerifyEmail(req model.VerifyEmailRequest) error {
 	var user model.User
 	err := s.db.Where("email = ? AND verification_token = ?", req.Email, req.Token).First(&user).Error
@@ -137,8 +133,6 @@ func (s *AuthService) VerifyEmail(req model.VerifyEmailRequest) error {
 	log.Printf("✅ Email verified: %s (%s)", user.Username, user.Email)
 	return nil
 }
-
-// ─── Resend Verification ──────────────────────────────────────────────────────
 
 func (s *AuthService) ResendVerification(req model.ResendVerificationRequest) error {
 	var user model.User
@@ -175,8 +169,6 @@ func (s *AuthService) ResendVerification(req model.ResendVerificationRequest) er
 	return nil
 }
 
-// ─── Login (Email) ────────────────────────────────────────────────────────────
-
 func (s *AuthService) Login(req model.LoginRequest) (*model.UserResponse, string, error) {
 	var user model.User
 	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
@@ -206,8 +198,6 @@ func (s *AuthService) Login(req model.LoginRequest) (*model.UserResponse, string
 	resp := user.ToResponse()
 	return &resp, token, nil
 }
-
-// ─── Login (Username) ─────────────────────────────────────────────────────────
 
 func (s *AuthService) LoginWithUsername(req model.LoginWithUsernameRequest) (*model.UserResponse, string, error) {
 	var user model.User
@@ -239,8 +229,6 @@ func (s *AuthService) LoginWithUsername(req model.LoginWithUsernameRequest) (*mo
 	return &resp, token, nil
 }
 
-// ─── Get User By ID ───────────────────────────────────────────────────────────
-
 func (s *AuthService) GetUserByID(id uint) (*model.UserResponse, error) {
 	var user model.User
 	if err := s.db.First(&user, id).Error; err != nil {
@@ -253,36 +241,25 @@ func (s *AuthService) GetUserByID(id uint) (*model.UserResponse, error) {
 	return &resp, nil
 }
 
-// ─── Forgot Password ──────────────────────────────────────────────────────────
-
-// ForgotPassword generate OTP, kirim ke email, kembalikan JWT (otp_token) ke FE.
-// OTP tidak disimpan di DB — validasi dilakukan via JWT signature.
-//
-// Response ke FE: { "otp_token": "<jwt>" }
-// FE wajib simpan otp_token dan kirim balik saat reset password.
 func (s *AuthService) ForgotPassword(req model.ForgotPasswordRequest) (string, error) {
 	var user model.User
 	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Jangan bocorkan info email terdaftar atau tidak
 			return "", nil
 		}
 		return "", fmt.Errorf("gagal query user: %w", err)
 	}
 
-	// Generate OTP 6 digit numerik
 	otp, err := generateOTP(6)
 	if err != nil {
 		return "", fmt.Errorf("gagal buat OTP: %w", err)
 	}
 
-	// Hash OTP — yang disimpan di JWT adalah hash-nya, bukan plaintext
 	hashedOTP, err := bcrypt.GenerateFromPassword([]byte(otp), bcryptCost)
 	if err != nil {
 		return "", fmt.Errorf("gagal hash OTP: %w", err)
 	}
 
-	// Buat JWT berisi email + otp_hash, berlaku 5 menit
 	claims := otpClaims{
 		Email:   user.Email,
 		OTPHash: string(hashedOTP),
@@ -298,7 +275,6 @@ func (s *AuthService) ForgotPassword(req model.ForgotPasswordRequest) (string, e
 		return "", fmt.Errorf("gagal sign OTP token: %w", err)
 	}
 
-	// Kirim OTP plaintext ke email
 	if err := s.emailService.SendResetPasswordOTPEmail(user.Email, user.Username, otp); err != nil {
 		log.Printf("⚠️  Gagal kirim OTP ke %s: %v", user.Email, err)
 	}
@@ -307,27 +283,20 @@ func (s *AuthService) ForgotPassword(req model.ForgotPasswordRequest) (string, e
 	return signedToken, nil
 }
 
-// ─── Reset Password ───────────────────────────────────────────────────────────
-
-// ResetPassword memvalidasi JWT + OTP input lalu mengganti password.
-// Tidak ada query DB untuk validasi OTP — semua diverifikasi dari JWT.
 func (s *AuthService) ResetPassword(req model.ResetPasswordRequest) error {
 	if req.NewPassword != req.ConfirmPassword {
 		return model.ErrPasswordMismatch
 	}
 
-	// Parse & validasi JWT (cek signature + expiry otomatis)
 	claims, err := parseOTPToken(req.OTPToken)
 	if err != nil {
 		return model.ErrOTPInvalid
 	}
 
-	// Cocokkan OTP yang diinput user dengan hash di dalam JWT
 	if err := bcrypt.CompareHashAndPassword([]byte(claims.OTPHash), []byte(req.OTP)); err != nil {
 		return model.ErrOTPInvalid
 	}
 
-	// Ambil user dari DB hanya untuk update password
 	var user model.User
 	if err := s.db.Where("email = ?", claims.Email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -336,7 +305,6 @@ func (s *AuthService) ResetPassword(req model.ResetPasswordRequest) error {
 		return fmt.Errorf("gagal query user: %w", err)
 	}
 
-	// Hash & update password baru
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcryptCost)
 	if err != nil {
 		return fmt.Errorf("gagal hash password: %w", err)
@@ -349,8 +317,6 @@ func (s *AuthService) ResetPassword(req model.ResetPasswordRequest) error {
 	log.Printf("✅ Password berhasil direset: %s (%s)", user.Username, user.Email)
 	return nil
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func generateSecureToken(length int) (string, error) {
 	b := make([]byte, length)
@@ -398,6 +364,6 @@ func getJWTSecret() string {
 }
 
 func generateJWT(user model.User) (string, error) {
-	// TODO: Ganti dengan pemanggilan middleware.GenerateAccessToken(user.Username)
-	return fmt.Sprintf("jwt_placeholder_for_%s", user.Username), nil
+	userID := fmt.Sprintf("%d", user.ID)
+	return middleware.GenerateAccessToken(userID)
 }
